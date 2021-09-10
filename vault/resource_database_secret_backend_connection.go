@@ -20,7 +20,7 @@ type connectionStringConfig struct {
 var (
 	databaseSecretBackendConnectionBackendFromPathRegex = regexp.MustCompile("^(.+)/config/.+$")
 	databaseSecretBackendConnectionNameFromPathRegex    = regexp.MustCompile("^.+/config/(.+$)")
-	dbBackendTypes                                      = []string{"cassandra", "hana", "mongodb", "mssql", "mysql", "mysql_rds", "mysql_aurora", "mysql_legacy", "postgresql", "oracle", "elasticsearch", "snowflake"}
+	dbBackendTypes                                      = []string{"cassandra", "hana", "mongodb", "mssql", "mysql", "mysql_rds", "mysql_aurora", "mysql_legacy", "postgresql", "oracle", "elasticsearch", "snowflake", "custom_plugin"}
 )
 
 func databaseSecretBackendConnectionResource() *schema.Resource {
@@ -69,7 +69,6 @@ func databaseSecretBackendConnectionResource() *schema.Resource {
 				Description: "A map of sensitive data to pass to the endpoint. Useful for templated connection strings.",
 				Sensitive:   true,
 			},
-
 			"elasticsearch": {
 				Type:        schema.TypeList,
 				Optional:    true,
@@ -288,6 +287,29 @@ func databaseSecretBackendConnectionResource() *schema.Resource {
 				ConflictsWith: util.CalculateConflictsWith("snowflake", dbBackendTypes),
 			},
 
+			"custom_plugin": {
+				Type:        schema.TypeList,
+				Optional:    true,
+				Description: "Connection parameters for a custom plugin.",
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"plugin_name": {
+							Type:        schema.TypeString,
+							Required:    true,
+							Description: "The name of the custom plugin",
+						},
+						"connection_data": {
+							Type:        schema.TypeMap,
+							Required:    true,
+							Description: "Data provided to the custom plugin",
+							Sensitive:   true,
+						},
+					},
+				},
+				MaxItems:      1,
+				ConflictsWith: util.CalculateConflictsWith("custom_plugin", dbBackendTypes),
+			},
+
 			"backend": {
 				Type:        schema.TypeString,
 				Required:    true,
@@ -400,6 +422,8 @@ func getDatabasePluginName(d *schema.ResourceData) (string, error) {
 		return "elasticsearch-database-plugin", nil
 	case len(d.Get("snowflake").([]interface{})) > 0:
 		return "snowflake-database-plugin", nil
+	case len(d.Get("custom_plugin").([]interface{})) > 0:
+		return "custom-plugin", nil
 	default:
 		return "", fmt.Errorf("at least one database plugin must be configured")
 	}
@@ -486,6 +510,8 @@ func getDatabaseAPIData(d *schema.ResourceData) (map[string]interface{}, error) 
 		setElasticsearchDatabaseConnectionData(d, "elasticsearch.0.", data)
 	case "snowflake-database-plugin":
 		setSnowflakeDatabaseConnectionData(d, "snowflake.0.", data)
+	case "custom-plugin":
+		setCustomPluginDatabaseConnectionData(d, "custom_plugin.0.", data)
 	}
 
 	return data, nil
@@ -626,6 +652,33 @@ func getSnowflakeConnectionDetailsFromResponse(d *schema.ResourceData, prefix st
 	return []map[string]interface{}{result}
 }
 
+func getCustomPluginConnectionDetailsFromResponse(d *schema.ResourceData, prefix string, resp *api.Secret) []map[string]interface{} {
+	pluginName := resp.Data["plugin_name"]
+
+	details := resp.Data["connection_details"]
+	data, ok := details.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	connectionData := data
+
+	// Special handling for password which gets removed from the response
+	if v, ok := data["password"]; ok {
+		connectionData["password"] = v.(string)
+	} else if v, ok := d.GetOk(prefix + "connection_data.password"); ok {
+		// keep the password we have in state/config if the API doesn't return one
+		connectionData["password"] = v.(string)
+	}
+
+	result := map[string]interface{}{
+		"plugin_name":     pluginName,
+		"connection_data": connectionData,
+	}
+
+	return []map[string]interface{}{result}
+}
+
 func setDatabaseConnectionData(d *schema.ResourceData, prefix string, data map[string]interface{}) {
 	if v, ok := d.GetOk(prefix + "connection_url"); ok {
 		data["connection_url"] = v.(string)
@@ -680,6 +733,17 @@ func setSnowflakeDatabaseConnectionData(d *schema.ResourceData, prefix string, d
 
 	if v, ok := d.GetOk(prefix + "username_template"); ok {
 		data["username_template"] = v.(string)
+	}
+}
+
+func setCustomPluginDatabaseConnectionData(d *schema.ResourceData, prefix string, data map[string]interface{}) {
+	setDatabaseConnectionData(d, prefix, data)
+	data["plugin_name"] = d.Get(prefix + "plugin_name").(string)
+
+	if m, ok := d.GetOkExists(prefix + "connection_data"); ok {
+		for k, v := range m.(map[string]interface{}) {
+			data[k] = v.(string)
+		}
 	}
 }
 
@@ -854,6 +918,8 @@ func databaseSecretBackendConnectionRead(d *schema.ResourceData, meta interface{
 		d.Set("elasticsearch", getElasticsearchConnectionDetailsFromResponse(d, "elasticsearch.0.", resp))
 	case "snowflake-database-plugin":
 		d.Set("snowflake", getSnowflakeConnectionDetailsFromResponse(d, "snowflake.0.", resp))
+	default:
+		d.Set("custom_plugin", getCustomPluginConnectionDetailsFromResponse(d, "custom_plugin.0.", resp))
 	}
 
 	if err != nil {

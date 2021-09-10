@@ -611,6 +611,48 @@ func TestAccDatabaseSecretBackendConnection_snowflake(t *testing.T) {
 	})
 }
 
+func TestAccDatabaseSecretBackendConnection_custom_plugin(t *testing.T) {
+	pluginName := "vault-plugin-database-mock"
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		log.Fatalf("Failed reading current working directory: %s", err)
+	}
+
+	if _, err := os.Stat(cwd + "/../test-plugins/bin/" + pluginName); os.IsNotExist(err) {
+		t.Skip(fmt.Sprintf("The %s binary does not exist in test-plugins/bin", pluginName))
+	}
+
+	connURL := "localhost"
+	username := acctest.RandomWithPrefix("username")
+	password := acctest.RandomWithPrefix("password")
+	backend := acctest.RandomWithPrefix("tf-test-db")
+	name := acctest.RandomWithPrefix("db")
+
+	resource.Test(t, resource.TestCase{
+		Providers:    testProviders,
+		PreCheck:     func() { testAccPreCheck(t) },
+		CheckDestroy: testAccDatabaseSecretBackendConnectionCheckDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccDatabaseSecretBackendConnectionConfig_custom_plugin(name, backend, pluginName, connURL, username, password),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "name", name),
+					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "backend", backend),
+					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "allowed_roles.#", "2"),
+					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "allowed_roles.0", "dev"),
+					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "allowed_roles.1", "prod"),
+					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "verify_connection", "true"),
+					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "custom_plugin.0.plugin_name", pluginName),
+					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "custom_plugin.0.connection_data.username", username),
+					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "custom_plugin.0.connection_data.password", password),
+					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "custom_plugin.0.connection_data.connection_url", connURL),
+				),
+			},
+		},
+	})
+}
+
 func testAccDatabaseSecretBackendConnectionCheckDestroy(s *terraform.State) error {
 	client := testProvider.Meta().(*api.Client)
 
@@ -958,7 +1000,7 @@ resource "vault_database_secret_backend_connection" "test" {
   allowed_roles = ["dev", "prod"]
   root_rotation_statements = ["FOOBAR"]
 
-  snowflake { 
+  snowflake {
     connection_url = "%s"
     username = "%s"
     password = "%s"
@@ -966,6 +1008,30 @@ resource "vault_database_secret_backend_connection" "test" {
   }
 }
 `, path, name, url, username, password, userTempl)
+}
+
+func testAccDatabaseSecretBackendConnectionConfig_custom_plugin(name, path, plugin_name, url, username, password string) string {
+	return fmt.Sprintf(`
+resource "vault_mount" "db" {
+  path = "%s"
+  type = "database"
+}
+
+resource "vault_database_secret_backend_connection" "test" {
+  backend = "${vault_mount.db.path}"
+  name = "%s"
+  allowed_roles = ["dev", "prod"]
+  root_rotation_statements = ["FOOBAR"]
+  custom_plugin {
+		plugin_name = "%s"
+		connection_data = {
+			connection_url = "%s"
+			username = "%s"
+			password = "%s"
+		}
+  }
+}
+`, path, name, plugin_name, url, username, password)
 }
 
 func newMySQLConnection(t *testing.T, connURL string, username string, password string) *sql.DB {

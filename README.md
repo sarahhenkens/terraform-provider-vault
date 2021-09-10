@@ -96,3 +96,23 @@ If you wish to run specific tests, use the `TESTARGS` environment variable:
 ```sh
 TESTARGS="--run DataSourceAWSAccessCredentials" make testacc
 ```
+
+### Running acceptance tests with docker compose
+
+(optional) Build the test plugins
+
+```sh
+$ make build-test-plugins
+```
+
+Start vault with docker-compose
+
+```sh
+$ docker-compose up
+```
+
+Run the acceptance tests suite
+
+```sh
+$ source .test-env && make testacc
+```
