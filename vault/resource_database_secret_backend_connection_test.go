@@ -636,7 +636,11 @@ func TestAccDatabaseSecretBackendConnection_custom_plugin(t *testing.T) {
 		CheckDestroy: testAccDatabaseSecretBackendConnectionCheckDestroy,
 		Steps: []resource.TestStep{
 			{
+<<<<<<< HEAD
 				Config: testAccDatabaseSecretBackendConnectionConfig_custom_plugin(name, backend, pluginName, connURL, username, password, mode),
+=======
+				Config: testAccDatabaseSecretBackendConnectionConfig_custom_plugin(name, backend, pluginName, connURL, username, password),
+>>>>>>> 40ea368e (Add custom plugin support)
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "name", name),
 					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "backend", backend),
@@ -645,10 +649,16 @@ func TestAccDatabaseSecretBackendConnection_custom_plugin(t *testing.T) {
 					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "allowed_roles.1", "prod"),
 					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "verify_connection", "true"),
 					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "custom_plugin.0.plugin_name", pluginName),
+<<<<<<< HEAD
 					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "custom_plugin.0.username", username),
 					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "custom_plugin.0.password", password),
 					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "custom_plugin.0.connection_url", connURL),
 					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "custom_plugin.0.connection_data.mode", mode),
+=======
+					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "custom_plugin.0.connection_data.username", username),
+					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "custom_plugin.0.connection_data.password", password),
+					resource.TestCheckResourceAttr("vault_database_secret_backend_connection.test", "custom_plugin.0.connection_data.connection_url", connURL),
+>>>>>>> 40ea368e (Add custom plugin support)
 				),
 			},
 		},
