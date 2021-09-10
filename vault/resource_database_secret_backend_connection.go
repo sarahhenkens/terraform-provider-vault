@@ -20,7 +20,7 @@ type connectionStringConfig struct {
 var (
 	databaseSecretBackendConnectionBackendFromPathRegex = regexp.MustCompile("^(.+)/config/.+$")
 	databaseSecretBackendConnectionNameFromPathRegex    = regexp.MustCompile("^.+/config/(.+$)")
-	dbBackendTypes                                      = []string{"cassandra", "hana", "mongodb", "mssql", "mysql", "mysql_rds", "mysql_aurora", "mysql_legacy", "postgresql", "oracle", "elasticsearch", "snowflake"}
+	dbBackendTypes                                      = []string{"cassandra", "hana", "mongodb", "mssql", "mysql", "mysql_rds", "mysql_aurora", "mysql_legacy", "postgresql", "oracle", "elasticsearch", "snowflake", "custom_plugin"}
 )
 
 func databaseSecretBackendConnectionResource() *schema.Resource {
@@ -69,7 +69,6 @@ func databaseSecretBackendConnectionResource() *schema.Resource {
 				Description: "A map of sensitive data to pass to the endpoint. Useful for templated connection strings.",
 				Sensitive:   true,
 			},
-
 			"elasticsearch": {
 				Type:        schema.TypeList,
 				Optional:    true,
@@ -288,6 +287,48 @@ func databaseSecretBackendConnectionResource() *schema.Resource {
 				ConflictsWith: util.CalculateConflictsWith("snowflake", dbBackendTypes),
 			},
 
+			"custom_plugin": {
+				Type:        schema.TypeList,
+				Optional:    true,
+				Description: "Connection parameters for a custom plugin.",
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"plugin_name": {
+							Type:        schema.TypeString,
+							Required:    true,
+							ForceNew:    true,
+							Description: "The name of the custom plugin",
+						},
+						"connection_url": {
+							Type:        schema.TypeString,
+							Optional:    true,
+							Description: "Connection string to use to connect to the database.",
+						},
+						"username": {
+							Type:        schema.TypeString,
+							Optional:    true,
+							Description: "The username to use when authenticating with the custom plugin.",
+						},
+						"password": {
+							Type:        schema.TypeString,
+							Optional:    true,
+							Description: "The password to use when authenticating with the custom plugin.",
+							Sensitive:   true,
+						},
+						"connection_data": {
+							Type:        schema.TypeMap,
+							Optional:    true,
+							Description: "Additional non-sensitive connection data required by the custom plugin.",
+							Elem: &schema.Schema{
+								Type: schema.TypeString,
+							},
+						},
+					},
+				},
+				MaxItems:      1,
+				ConflictsWith: util.CalculateConflictsWith("custom_plugin", dbBackendTypes),
+			},
+
 			"backend": {
 				Type:        schema.TypeString,
 				Required:    true,
@@ -400,6 +441,8 @@ func getDatabasePluginName(d *schema.ResourceData) (string, error) {
 		return "elasticsearch-database-plugin", nil
 	case len(d.Get("snowflake").([]interface{})) > 0:
 		return "snowflake-database-plugin", nil
+	case len(d.Get("custom_plugin").([]interface{})) > 0:
+		return "custom-plugin", nil
 	default:
 		return "", fmt.Errorf("at least one database plugin must be configured")
 	}
@@ -486,6 +529,8 @@ func getDatabaseAPIData(d *schema.ResourceData) (map[string]interface{}, error) 
 		setElasticsearchDatabaseConnectionData(d, "elasticsearch.0.", data)
 	case "snowflake-database-plugin":
 		setSnowflakeDatabaseConnectionData(d, "snowflake.0.", data)
+	case "custom-plugin":
+		setCustomPluginDatabaseConnectionData(d, "custom_plugin.0.", data)
 	}
 
 	return data, nil
@@ -626,6 +671,47 @@ func getSnowflakeConnectionDetailsFromResponse(d *schema.ResourceData, prefix st
 	return []map[string]interface{}{result}
 }
 
+func getCustomPluginConnectionDetailsFromResponse(d *schema.ResourceData, prefix string, resp *api.Secret) []map[string]interface{} {
+	pluginName := resp.Data["plugin_name"]
+
+	details := resp.Data["connection_details"]
+	data, ok := details.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	result := map[string]interface{}{}
+
+	if v, ok := data["connection_url"]; ok {
+		result["connection_url"] = v.(string)
+		delete(data, "connection_url")
+	}
+
+	if v, ok := data["username"]; ok {
+		result["username"] = v.(string)
+		delete(data, "username")
+	}
+
+	if v, ok := d.GetOk(prefix + "password"); ok {
+		result["password"] = v.(string)
+	} else {
+		if v, ok := data["password"]; ok {
+			result["password"] = v.(string)
+			delete(data, "username")
+		}
+	}
+
+	if v, ok := data["username"]; ok {
+		result["username"] = v.(string)
+		delete(data, "username")
+	}
+
+	result["plugin_name"] = pluginName
+	result["connection_data"] = data
+
+	return []map[string]interface{}{result}
+}
+
 func setDatabaseConnectionData(d *schema.ResourceData, prefix string, data map[string]interface{}) {
 	if v, ok := d.GetOk(prefix + "connection_url"); ok {
 		data["connection_url"] = v.(string)
@@ -680,6 +766,29 @@ func setSnowflakeDatabaseConnectionData(d *schema.ResourceData, prefix string, d
 
 	if v, ok := d.GetOk(prefix + "username_template"); ok {
 		data["username_template"] = v.(string)
+	}
+}
+
+func setCustomPluginDatabaseConnectionData(d *schema.ResourceData, prefix string, data map[string]interface{}) {
+	setDatabaseConnectionData(d, prefix, data)
+	data["plugin_name"] = d.Get(prefix + "plugin_name").(string)
+
+	if v, ok := d.GetOk(prefix + "connection_url"); ok {
+		data["connection_url"] = v.(string)
+	}
+
+	if v, ok := d.GetOk(prefix + "username"); ok {
+		data["username"] = v.(string)
+	}
+
+	if v, ok := d.GetOk(prefix + "password"); ok {
+		data["password"] = v.(string)
+	}
+
+	if m, ok := d.GetOk(prefix + "connection_data"); ok {
+		for k, v := range m.(map[string]interface{}) {
+			data[k] = v.(string)
+		}
 	}
 }
 
@@ -854,6 +963,8 @@ func databaseSecretBackendConnectionRead(d *schema.ResourceData, meta interface{
 		d.Set("elasticsearch", getElasticsearchConnectionDetailsFromResponse(d, "elasticsearch.0.", resp))
 	case "snowflake-database-plugin":
 		d.Set("snowflake", getSnowflakeConnectionDetailsFromResponse(d, "snowflake.0.", resp))
+	default:
+		d.Set("custom_plugin", getCustomPluginConnectionDetailsFromResponse(d, "custom_plugin.0.", resp))
 	}
 
 	if err != nil {

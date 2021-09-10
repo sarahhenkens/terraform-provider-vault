@@ -8,6 +8,9 @@ default: build
 build: fmtcheck
 	go install
 
+build-test-plugins:
+	$(MAKE) -C test-plugins/vault-plugin-database-mock build
+
 test: fmtcheck
 	go test $(TEST) || exit 1
 	echo $(TEST) | \
@@ -65,5 +68,5 @@ ifeq (,$(wildcard $(GOPATH)/src/$(WEBSITE_REPO)))
 endif
 	@$(MAKE) -C $(GOPATH)/src/$(WEBSITE_REPO) website-provider-test PROVIDER_PATH=$(shell pwd) PROVIDER_NAME=$(PKG_NAME)
 
-.PHONY: build test testacc vet fmt fmtcheck errcheck test-compile website website-test
+.PHONY: build test testacc vet fmt fmtcheck errcheck test-compile website website-test build-test-plugins
 

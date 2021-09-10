@@ -81,6 +81,8 @@ The following arguments are supported:
 
 * `snowflake` - (Optional) A nested block containing configuration options for Snowflake connections.
 
+* `custom_plugin` - (Optional) A nested block containing configuration options for custom database plugin connections.
+
 Exactly one of the nested blocks of configuration options must be supplied.
 
 ### Cassandra Configuration Options
@@ -260,6 +262,18 @@ See the [Vault
 * `password` - (Optional) The password to be used in the connection.
 
 * `username_template` - (Optional) - [Template](https://www.vaultproject.io/docs/concepts/username-templating) describing how dynamic usernames are generated.
+
+
+### Custom Plugin Configuration Options
+
+* `plugin_name` - (Required) The name of your custom database plugin loaded into vault.
+
+* `connection_data` - (required) A map of sensitive connection data required by the custom plugin.
+
+#### Connection Data
+
+To support any arbitrary custom plugin configurations, a `connection_data` map is required. Most likely
+these values include `connection_url`, `username`, `password`. But they can vary from plugin to plugin.
 
 ## Attributes Reference
 
